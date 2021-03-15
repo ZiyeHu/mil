@@ -6,11 +6,14 @@ import imageio
 import os
 import gym
 
+from functools import reduce
+from operator import mul
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 from data_generator import DataGenerator
 # from amaml import MIL
-from maml import MIL
+from amaml import MIL
 from evaluation.eval_reach import evaluate_vision_reach
 from evaluation.eval_push import evaluate_push
 from tensorflow.python.platform import flags
@@ -45,7 +48,7 @@ flags.DEFINE_integer('training_set_size', 750, 'size of the training set, 1500 f
 flags.DEFINE_integer('val_set_size', 150, 'size of the training set, 150 for sim_reach and 76 for sim push')
 
 ## Training options
-flags.DEFINE_integer('metatrain_iterations',  4000,'number of metatraining iterations.')  # 30k for pushing, 50k for reaching and placing
+flags.DEFINE_integer('metatrain_iterations',  30000,'number of metatraining iterations.')  # 30k for pushing, 50k for reaching and placing
 flags.DEFINE_integer('meta_batch_size', 25,'number of tasks sampled per meta-update')  # 25 for reaching, 15 for pushing, 12 for placing
 flags.DEFINE_float('meta_lr', 1e-3, 'the base learning rate of the generator')
 flags.DEFINE_integer('update_batch_size', 1,
@@ -85,12 +88,10 @@ flags.DEFINE_bool('fp', True, 'use spatial soft-argmax or not')
 flags.DEFINE_string('norm', 'layer_norm', 'batch_norm, layer_norm, or None')
 flags.DEFINE_bool('dropout', False, 'use dropout for fc layers or not')
 flags.DEFINE_float('keep_prob', 0.5, 'keep probability for dropout')
-flags.DEFINE_integer('num_filters', 30,
-                     'number of filters for conv nets -- 64 for placing, 16 for pushing, 40 for reaching.')
+flags.DEFINE_integer('num_filters', 5, 'number of filters for conv nets -- 64 for placing, 16 for pushing, 40 for reaching.')
 flags.DEFINE_integer('filter_size', 3, 'filter size for conv nets -- 3 for placing, 5 for pushing, 3 for reaching.')
 flags.DEFINE_integer('num_conv_layers', 5, 'number of conv layers -- 5 for placing, 4 for pushing, 3 for reaching.')
-flags.DEFINE_integer('num_strides', 3,
-                     'number of conv layers with strided filters -- 3 for placing, 4 for pushing, 3 for reaching.')
+flags.DEFINE_integer('num_strides', 3, 'number of conv layers with strided filters -- 3 for placing, 4 for pushing, 3 for reaching.')
 flags.DEFINE_bool('conv', True, 'whether or not to use a convolutional network, only applicable in some cases')
 flags.DEFINE_integer('num_fc_layers', 3, 'number of fully-connected layers')
 flags.DEFINE_integer('layer_size', 200, 'hidden dimension of fully-connected layers')
@@ -129,8 +130,17 @@ flags.DEFINE_integer('action_size', 2, 'size of embedding')
 flags.DEFINE_float('margin', 1.0, 'margin of loss')
 flags.DEFINE_float('margin_coefficient', 1, 'margin of loss')
 
+def get_num_params():
+    nums=0
+    for variable in tf.trainable_variables():
+        shape= variable.get_shape()
+        nums+=reduce(mul, [dim.value for dim in shape], 1)
+    return nums
 
 def train(graph, model, saver, sess, data_generator, log_dir, restore_itr=0):
+
+
+
     """
     Train the model.
     """
@@ -179,10 +189,13 @@ def train(graph, model, saver, sess, data_generator, log_dir, restore_itr=0):
                          model.total_semantic_loss, model.total_losses2[model.num_updates - 1]]
 
         with graph.as_default():
+            parameters = get_num_params()
+            print('total parameters', parameters)
             results = sess.run(input_tensors, feed_dict=feed_dict)
             with open('logs/sim_reach_temporal_conv/reach_traing_loss.txt', 'a') as f:
                 # f.write("%d %f %f\n" % (itr, np.mean(results[-2]), np.mean(results[-1])))
-                f.write("%d %f\n" % (itr, np.mean(results[-1])))
+                # f.write("%d %f\n" % (itr, np.mean(results[-1])))
+                f.write("%d %f %f\n" % (itr, np.mean(results[-2]), np.mean(results[-1])))
                 print('Iteration %d:  pre_loss is %.2f, average loss is %.2f, pos_lossa is %.2f, pos_lossb is %.2f' % (itr, results[-4], results[-3], results[-2], results[-1]))
                 # print(results[-5].shape, results[-4].shape, results[-3].shape)
                 # print(results[-5][-1][-1].shape, results[-4][-1][-1].shape, results[-3][-1][-1].shape)
